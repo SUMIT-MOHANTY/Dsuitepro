@@ -5,7 +5,13 @@
  * with the AuthLayout component.
  */
 
+import type { Metadata } from 'next';
 import { AuthLayout } from '@/layout/auth-layout';
+
+export const metadata: Metadata = {
+  title: 'Authentication - Todo App',
+  description: 'Sign in or create an account to manage your todos',
+};
 
 export default function AuthRootLayout({
   children,
