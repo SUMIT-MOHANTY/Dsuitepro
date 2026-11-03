@@ -1,0 +1,54 @@
+# ============================================================================
+# Development Dockerfile for Todo Application
+# Hot reload, volume mounting, and debug tools
+# ============================================================================
+
+FROM node:18-alpine
+
+# Install dependencies required for native module compilation and debugging
+RUN apk add --no-cache \
+    libc6-compat \
+    git \
+    bash \
+    curl \
+    vim
+
+WORKDIR /app
+
+# Copy package files first for better layer caching
+COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+
+# Install dependencies based on the package manager used
+RUN \
+  if [ -f pnpm-lock.yaml ]; then \
+    npm install -g pnpm && pnpm install; \
+  elif [ -f yarn.lock ]; then \
+    yarn install; \
+  elif [ -f package-lock.json ]; then \
+    npm install; \
+  else \
+    npm install; \
+  fi
+
+# Copy the rest of the application code
+# Note: In development, this will be overridden by volume mounts
+COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Set environment variables for development
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV WATCHPACK_POLLING=true
+
+# Expose the application port
+EXPOSE 3000
+
+# Expose debug port for Node.js inspector
+EXPOSE 9229
+
+# Start the development server with hot reload
+CMD ["npm", "run", "dev"]

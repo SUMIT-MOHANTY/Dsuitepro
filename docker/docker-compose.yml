@@ -1,0 +1,144 @@
+# ============================================================================
+# Production Docker Compose for Todo Application
+# Next.js app + PostgreSQL + optional Redis for rate limiting
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # --------------------------------------------------------------------------
+  # Next.js Application
+  # --------------------------------------------------------------------------
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runner
+    container_name: todo-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/todo_app
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - todo-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL Database
+  # --------------------------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: todo-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=todo_app
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../prisma/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - todo-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  # Redis Cache & Rate Limiting
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: todo-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - todo-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # --------------------------------------------------------------------------
+  # Database Migration Runner (One-off service)
+  # --------------------------------------------------------------------------
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: builder
+    container_name: todo-migrate
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/todo_app
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - todo-network
+    command: ["npx", "prisma", "migrate", "deploy"]
+    profiles:
+      - migrate
+
+  # --------------------------------------------------------------------------
+  # Database Seeder (One-off service)
+  # --------------------------------------------------------------------------
+  seed:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: builder
+    container_name: todo-seed
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/todo_app
+      - NODE_ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - todo-network
+    command: ["npm", "run", "db:seed"]
+    profiles:
+      - seed
+
+# ----------------------------------------------------------------------------
+# Networks
+# ----------------------------------------------------------------------------
+networks:
+  todo-network:
+    driver: bridge
+
+# ----------------------------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
