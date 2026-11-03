@@ -7,9 +7,6 @@
 
 import React from 'react';
 import { CheckSquare } from 'lucide-react';
-import '../src/styles/auth-layout.css';
-import '../src/styles/auth-pages.css';
-import '../src/styles/auth-components.css';
 
 interface AuthLayoutProps {
   children: React.ReactNode;
